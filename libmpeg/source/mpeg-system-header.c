@@ -27,7 +27,7 @@ size_t system_header_read(struct ps_system_header_t *h, const uint8_t* data, siz
     h->fixed_flag = (data[9] >> 1) & 0x01;
     h->CSPS_flag = (data[9] >> 0) & 0x01;
 
-    assert((0x20 & data[10]) == 0x20); // 'xx1xxxxx'
+    // assert((0x20 & data[10]) == 0x20); // 'xx1xxxxx'
     h->system_audio_lock_flag = (data[10] >> 7) & 0x01;
     h->system_video_lock_flag = (data[10] >> 6) & 0x01;
     h->video_bound = data[10] & 0x1F;
