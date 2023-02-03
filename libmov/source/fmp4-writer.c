@@ -240,30 +240,23 @@ static int fmp4_write_fragment(struct fmp4_writer_t* writer)
 		return 0; // empty
 
 	// write moov
-	if (!writer->has_moov)
-	{
-		// write ftyp/stype
-		if (mov->flags & MOV_FLAG_SEGMENT)
-		{
-			mov_write_styp(mov);
-		}
-		else
-		{
-			mov_write_ftyp(mov);
-			fmp4_write_app(mov);
-			fmp4_write_moov(mov);
-		}
-
-		writer->has_moov = 1;
-	}
-
 	if (mov->flags & MOV_FLAG_SEGMENT)
 	{
+		// write stype
+		mov_write_styp(mov);
+
 		// ISO/IEC 23009-1:2014(E) 6.3.4.2 General format type (p93)
 		// Each Media Segment may contain one or more 'sidx' boxes. 
 		// If present, the first 'sidx' box shall be placed before any 'moof' box 
 		// and the first Segment Index box shall document the entire Segment.
 		fmp4_write_sidx(mov);
+	}
+	else if (!writer->has_moov)
+	{
+		mov_write_ftyp(mov);
+		fmp4_write_app(mov);
+		fmp4_write_moov(mov);
+		writer->has_moov = 1;
 	}
 
 	// moof
@@ -416,7 +409,9 @@ int fmp4_writer_write(struct fmp4_writer_t* writer, int idx, const void* data, s
     track->turn_last_duration = track->turn_last_duration > 0 ? track->turn_last_duration * 7 / 8 + duration / 8 : duration;
 #endif
     
-	if (MOV_VIDEO == track->handler_type && (flags & MOV_AV_FLAG_KEYFREAME) )
+	// 1. force segment or
+	// 2. video key frame
+	if (0 == (flags & MOV_AV_FLAG_SEGMENT_DISABLE) && (0 != (flags & MOV_AV_FLAG_SEGMENT_FORCE) || (MOV_VIDEO == track->handler_type && (flags & MOV_AV_FLAG_KEYFREAME)))  )
 		fmp4_write_fragment(writer); // fragment per video keyframe
 
 	if (track->sample_count + 1 >= track->sample_offset)
@@ -525,10 +520,6 @@ int fmp4_writer_save_segment(fmp4_writer_t* writer)
 		for (i = 0; i < mov->track_count; i++)
 			mov->tracks[i].frag_count = 0; // don't free frags memory
 	}
-	else
-	{
-		writer->has_moov = 0; // clear moov flags
-	}
 
 	return mov_buffer_error(&mov->io);
 }
@@ -539,5 +530,6 @@ int fmp4_writer_init_segment(fmp4_writer_t* writer)
 	mov = &writer->mov;
 	mov_write_ftyp(mov);
 	fmp4_write_moov(mov);
+	writer->has_moov = 1;
 	return mov_buffer_error(&mov->io);
 }
