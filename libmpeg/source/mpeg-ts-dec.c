@@ -144,6 +144,11 @@ int ts_demuxer_flush(struct ts_demuxer_t* ts)
                 const uint8_t aud[] = {0,0,0,1,0x46,0x01,0x50};
                 pes_packet(&pes->pkt, pes, aud, sizeof(aud), 0, ts->onpacket, ts->param);
             }
+			else if (PSI_STREAM_H266 == pes->codecid)
+			{
+				const uint8_t aud[] = { 0,0,0,1,0x00,0xA1,0x18 };
+				pes_packet(&pes->pkt, pes, aud, sizeof(aud), 0, ts->onpacket, ts->param);
+			}
             else
             {
                 //assert(0);
@@ -311,22 +316,7 @@ struct ts_demuxer_t* ts_demuxer_create(ts_demuxer_onpacket onpacket, void* param
 
 int ts_demuxer_destroy(struct ts_demuxer_t* ts)
 {
-    size_t i, j;
-    struct pes_t* pes;
-    for (i = 0; i < ts->pat.pmt_count; i++)
-    {
-        for (j = 0; j < ts->pat.pmts[i].stream_count; j++)
-        {
-            pes = &ts->pat.pmts[i].streams[j];
-            if (pes->pkt.data)
-                free(pes->pkt.data);
-            pes->pkt.data = NULL;
-        }
-    }
-
-	if (ts->pat.pmts && ts->pat.pmts != ts->pat.pmt_default)
-		free(ts->pat.pmts);
-
+	pat_clear(&ts->pat);
     free(ts);
     return 0;
 }

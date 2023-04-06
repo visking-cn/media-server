@@ -26,7 +26,7 @@
 typedef struct _mpeg_ts_enc_context_t
 {
     struct pat_t pat;
-    int h264_h265_with_aud;
+    int h26x_with_aud;
 
 	int64_t sdt_period;
 	int64_t pat_period;
@@ -41,8 +41,6 @@ typedef struct _mpeg_ts_enc_context_t
 
 	uint8_t payload[1024]; // maximum PAT/PMT payload length
 } mpeg_ts_enc_context_t;
-
-static void mpeg_ts_pmt_destroy(struct pmt_t* pmt);
 
 static int mpeg_ts_write_section_header(const mpeg_ts_enc_context_t *ts, int pid, unsigned int* cc, const void* payload, size_t len)
 {
@@ -167,7 +165,7 @@ static int ts_write_pes(mpeg_ts_enc_context_t *tsctx, const struct pmt_t* pmt, s
 
             p += pes_write_header(stream, header, TS_PACKET_SIZE - (header - data));
 
-			if(PSI_STREAM_H264 == stream->codecid && !tsctx->h264_h265_with_aud)
+			if(PSI_STREAM_H264 == stream->codecid && !tsctx->h26x_with_aud)
 			{
 				// 2.14 Carriage of Rec. ITU-T H.264 | ISO/IEC 14496-10 video
 				// Each AVC access unit shall contain an access unit delimiter NAL Unit
@@ -176,7 +174,7 @@ static int ts_write_pes(mpeg_ts_enc_context_t *tsctx, const struct pmt_t* pmt, s
 				p[5] = 0xF0; // any slice type (0xe) + rbsp stop one bit
 				p += 6;
 			}
-			else if (PSI_STREAM_H265 == stream->codecid && !tsctx->h264_h265_with_aud)
+			else if (PSI_STREAM_H265 == stream->codecid && !tsctx->h26x_with_aud)
 			{
 				// 2.17 Carriage of HEVC
 				// Each HEVC access unit shall contain an access unit delimiter NAL unit.
@@ -184,6 +182,16 @@ static int ts_write_pes(mpeg_ts_enc_context_t *tsctx, const struct pmt_t* pmt, s
 				p[4] = 0x46; // 35-AUD_NUT
 				p[5] = 0x01;
 				p[6] = 0x50; // B&P&I (0x2) + rbsp stop one bit
+				p += 7;
+			}
+			else if (PSI_STREAM_H266 == stream->codecid && !tsctx->h26x_with_aud)
+			{
+				// 2.23 Carriage of VVC
+				// Each VVC access unit shall contain an access unit delimiter NAL unit
+				nbo_w32(p, 0x00000001);
+				p[4] = 0x00; // 20-AUD_NUT
+				p[5] = 0xA1;
+				p[6] = 0x28; // B&P&I (0x2) + rbsp stop one bit
 				p += 7;
 			}
 
@@ -283,7 +291,7 @@ int mpeg_ts_write(void* ts, int pid, int flags, int64_t pts, int64_t dts, const 
     stream->pts = pts;
     stream->dts = dts;
     stream->data_alignment_indicator = (flags & MPEG_FLAG_IDR_FRAME) ? 1 : 0; // idr frame
-    tsctx->h264_h265_with_aud = (flags & MPEG_FLAG_H264_H265_WITH_AUD) ? 1 : 0;
+    tsctx->h26x_with_aud = (flags & MPEG_FLAG_H264_H265_WITH_AUD) ? 1 : 0;
     // set PCR_PID
     //assert(1 == tsctx->pat.pmt_count);
     if (0x1FFF == pmt->PCR_PID || (PES_SID_VIDEO == (stream->sid & PES_SID_VIDEO) && pmt->PCR_PID != stream->pid))
@@ -368,19 +376,10 @@ void* mpeg_ts_create(const struct mpeg_ts_func_t *func, void* param)
 
 int mpeg_ts_destroy(void* ts)
 {
-	uint32_t i;
-	struct pmt_t* pmt;
 	mpeg_ts_enc_context_t *tsctx;
 	tsctx = (mpeg_ts_enc_context_t*)ts;
 
-	for(i = 0; i < tsctx->pat.pmt_count; i++)
-	{
-		pmt = &tsctx->pat.pmts[i];
-		mpeg_ts_pmt_destroy(pmt);
-	}
-
-	if (tsctx->pat.pmts && tsctx->pat.pmts != tsctx->pat.pmt_default)
-		free(tsctx->pat.pmts);
+	pat_clear(&tsctx->pat);
 	free(tsctx);
 	return 0;
 }
@@ -451,9 +450,8 @@ int mpeg_ts_remove_program(void* ts, uint16_t pn)
 		pmt = &tsctx->pat.pmts[i];
 		if (pmt->pn != pn)
 			continue;
-
-		mpeg_ts_pmt_destroy(pmt);
-
+		
+		pmt_clear(pmt);
 		if (i + 1 < tsctx->pat.pmt_count)
 			memmove(&tsctx->pat.pmts[i], &tsctx->pat.pmts[i + 1], (tsctx->pat.pmt_count - i - 1) * sizeof(tsctx->pat.pmts[0]));
 		tsctx->pat.pmt_count--;
@@ -462,19 +460,6 @@ int mpeg_ts_remove_program(void* ts, uint16_t pn)
 	}
 
 	return -1; // ENOTFOUND
-}
-
-static void mpeg_ts_pmt_destroy(struct pmt_t* pmt)
-{
-	unsigned int i;
-	for (i = 0; i < pmt->stream_count; i++)
-	{
-		if (pmt->streams[i].esinfo)
-			free(pmt->streams[i].esinfo);
-	}
-
-	if (pmt->pminfo)
-		free(pmt->pminfo);
 }
 
 static int mpeg_ts_pmt_add_stream(mpeg_ts_enc_context_t* ts, struct pmt_t* pmt, int codecid, const void* extra_data, size_t extra_data_size)
