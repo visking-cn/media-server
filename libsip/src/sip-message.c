@@ -1,6 +1,7 @@
 #include "sip-message.h"
 #include "sip-header.h"
 #include "sip-dialog.h"
+#include "sip-internal.h"
 #include "sys/system.h"
 #include "cstringext.h"
 #include "uuid.h"
@@ -47,6 +48,7 @@ struct sip_message_t* sip_message_create(int mode)
 	sip_params_init(&msg->headers);
 
 	sip_message_add_header(msg, "User-Agent", SIP_HEADER_USER_AGENT);
+	atomic_increment32(&s_gc.message);
 	return msg;
 }
 
@@ -66,6 +68,7 @@ int sip_message_destroy(struct sip_message_t* msg)
 		sip_substate_free(&msg->substate);
 		sip_params_free(&msg->headers);
 		free(msg);
+		atomic_decrement32(&s_gc.message);
 	}
 	return 0;
 }
@@ -718,10 +721,12 @@ int sip_message_add_header(struct sip_message_t* msg, const char* name, const ch
 
 	if (0 == strcasecmp(SIP_HEADER_FROM, name) || 0 == strcasecmp(SIP_HEADER_ABBR_FROM, name))
 	{
+		sip_contact_free(&msg->from);
 		r = sip_header_contact(header.value.p, header.value.p + header.value.n, &msg->from);
 	}
 	else if (0 == strcasecmp(SIP_HEADER_TO, name) || 0 == strcasecmp(SIP_HEADER_ABBR_TO, name))
 	{
+		sip_contact_free(&msg->to);
 		r = sip_header_contact(header.value.p, header.value.p + header.value.n, &msg->to);
 	}
 	else if (0 == strcasecmp(SIP_HEADER_CALLID, name) || 0 == strcasecmp(SIP_HEADER_ABBR_CALLID, name))
@@ -781,7 +786,7 @@ int sip_message_add_header(struct sip_message_t* msg, const char* name, const ch
 	}
 	else if (0 == strcasecmp(SIP_HEADER_SUBSCRIBE_STATE, name))
 	{
-		memset(&msg->substate, 0, sizeof(msg->substate));
+		sip_substate_free(&msg->substate);
 		r = sip_header_substate(header.value.p, header.value.p + header.value.n, &msg->substate);
 	}
 	else if (0 == strcasecmp(SIP_HEADER_RSEQ, name))
